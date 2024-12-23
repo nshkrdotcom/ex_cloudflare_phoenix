@@ -140,3 +140,193 @@ graph LR
 5.   **Integration:** Finally, update the Phoenix application to use the new abstractions.
 
 
+
+
+
+
+You're absolutely right to challenge the inclusion of OpenAI-specific logic directly within the core Cloudflare modules. My apologies for the apparent back-and-forth. The goal is a *loosely coupled* design, and I may have overstepped by integrating OpenAI too tightly.
+
+Let's correct course, focus on the core principles, and create a more decoupled architecture. You're right to call out that my previous implementation had a high level of coupling between specific services and calls which is not the objective of our architecture.
+
+**Re-examining Orange's AI Agent Architecture**
+
+Let's take another, more focused look at how "orange" handles its AI agent integration, paying close attention to the points of interaction and separation:
+
+```mermaid
+graph LR
+    subgraph CloudflareCalls["Cloudflare Calls"]
+      ClientA["Client Peer Connection A"]
+       SFU["Calls SFU"]
+        ClientB["Client Peer Connection B"]
+       
+        subgraph CallsAPI["Calls API"]
+           Session["Session Management"]
+            Track["Track Management"]
+            Renegotiate["Renegotiation"]
+        end
+    end
+
+    subgraph OrangeServer["Orange Server"]
+    	AIOrchestrator["AI Orchestrator (ChatRoom DO)"]
+        
+         subgraph PeerConnectionB["Peer Connection B"]
+            SDPGeneration["SDP Offer Generation"]
+            SDPExchange["SDP Renegotiation"]
+         end
+
+           subgraph PeerConnectionA["Peer Connection A"]
+            TrackExchange["Track Exchange"]
+         end
+        
+         OpenAIRequest["OpenAI Service Request<br>(app/utils/openai.server.ts)"]
+
+         
+         
+         
+    end
+
+     subgraph AI["External Service (OpenAI)"]
+     OpenAIService["Open AI API"]
+    end
+
+     subgraph Client["Client"]
+          MediaStream["Media Stream (User)"]
+            AgentUI["Agent UI Control"]
+    end
+    
+    %% Cloudflare Calls connections
+    ClientA --> SFU
+     ClientB --> SFU
+    SFU --> Tracks
+    SFU --> Session
+    SFU --> Renegotiate
+    
+    %% Orange Internal Connections
+    AIOrchestrator --> PeerConnectionB
+      PeerConnectionB --> CallsAPI
+       PeerConnectionB --> OpenAIRequest
+     OpenAIRequest --> OpenAI
+     PeerConnectionA --> AIOrchestrator
+         TrackExchange --> SFU
+    
+     %% Client Connections
+        AgentUI --> AIOrchestrator
+      MediaStream --> ClientA
+
+   classDef server fill:#e8f5e9,stroke:#1b5e20
+    classDef cloudflare fill:#fff3e0,stroke:#e65100
+        classDef external fill:#d1c4e9,stroke:#4a148c
+        classDef client fill:#f3e5f5,stroke:#4a148c
+    
+    class OrangeServer,AIOrchestrator,PeerConnectionB,PeerConnectionA,OpenAIRequest server
+      class CloudflareCalls,SFU,ClientA,ClientB,CallsAPI,Session,Tracks,Renegotiate cloudflare
+          class AI,OpenAIService external
+          class Client,MediaStream,AgentUI client
+```
+
+**Observations from the Diagram:**
+
+1.  **Distinct Peer Connections:** Orange establishes two distinct PeerConnections:
+    *   **Peer Connection A:**  Connects the user's client with Cloudflare calls. It manages only the `user-mic` track which will be used to send audio data to the AI service.
+    *   **Peer Connection B:** Connects Cloudflare Calls with the external AI service (OpenAI), responsible for sending an `ai-generated-voice` and receiving `user-mic`.
+2.  **SDP as Negotiation Tool:** SDP offers and answers are generated and exchanged specifically to set up the WebRTC connections (both A and B). The SDP for peer connection B is sent to Open AI, then the answer is used in that peer connection. SDP is a negotiation tool for WebRTC and doesn't represent an actual "data stream".
+3. **Track Exchange**: Once the connection with the OpenAI service is complete, then tracks are "exchanged" between both peer connections. The logic to perform this exchange exists on the server, where the ai output track is sent to Peer Connection A, and the user's mic input is sent to Peer Connection B.
+4.  **OpenAI as a Black Box:** The OpenAI integration is abstracted through a utility function (`requestOpenAIService`) which takes in an SDP offer and returns an SDP answer. The implementation details of the AI service are abstracted away, and simply represent external API interactions for the purposes of negotiation.
+5.  **Orchestration Layer**: All logic related to creating new connections, sending the SDP to external services, completing the SDP negotiation, routing data, sending back to client are all done through the `ChatRoom` durable object instance.
+
+**Revised Elixir Module Focus:**
+
+With this detailed picture of the "orange" server, we can establish more accurate responsibilities for the Elixir packages, specifically as it relates to how the AI integration occurs:
+
+*  **`ex_cloudflare_core`**: Will continue to be a low-level abstraction of core shared http and sdp concepts, and not implement anything service specific.
+
+*   **`ex_cloudflare_calls`:** Focuses on managing calls sessions and tracks, but is also aware of the need to enable a "third party" connection for integration into non-calls services. This is achieved by providing a configuration setting for the creation of a session, but it does not prescribe how that third party connection should be used, only providing the option for it. This will include methods to handle WebRTC offers/answers, create a calls session, add new tracks to the session, renegotiation, and closing of tracks.
+
+*   **`ex_cloudflare_durable`**: Remains focused on managing durable objects storage and namespace lookups. The durable objects do not handle any webRTC signalling, those primitives are defined within `ex_cloudflare_calls`. Instead the durable objects will store all configuration and tracking state of all of our different modules.
+
+*   **`ex_cloudflare_phoenix`**: Provides the behavior and interface of "Rooms" (as a mix of channels and liveview stateful components), while it relies on ex\_cloudflare\_calls, ex\_cloudflare\_durable to carry out the core features it provides.
+     * The logic for making requests against open AI or other services should be outside of this module (in `ex_cloudflare_service`). The Phoenix layer has some responsibilities of managing the track and peer connection metadata and using the data to then interact with the lower levels.
+*   **`ex_cloudflare_service`**: Contains specific helper modules to make api calls against external services (currently just Open AI), using the shared client logic in `ex_cloudflare_core.API`
+
+*   **`ex_cloudflare_agent`**: This new module will define the abstract behaviors for making a user (or agent) within the Cloudflare calls framework. This new module will not have direct interaction with durable object, instead only calling to the `ex_cloudflare_calls`. This module is an API bridge between a user (or an agent) and cloudflare calls.
+
+**How `ex_cloudflare_agent` Fits In:**
+
+*   **Abstraction Layer:** The `ex_cloudflare_agent` module now represents an abstraction layer for connecting to external services. It will define a specific behavior (or interface) for managing agent connections into calls, irrespective of what service they may be connected to.
+*   **SDP Agnostic**: The `ex_cloudflare_agent` will manage its own SDP offers and answers, using the `ex_cloudflare_calls` module, to then interact with any service endpoint that accepts that.
+*   **Two-Way Communication:**  The module should specify how data flows into the service, and back out of the service, mapping to and from valid media types of `ex_cloudflare_calls`.
+*  **Clear Separation**: The `ex_cloudflare_agent` is designed to live entirely within the calling applications (such as the Phoenix app) and it should provide all the necessary abstractions to the developer to use these as building blocks. This is not tied to `ex_cloudflare_phoenix` in any way.
+
+**Revised Code Structure:**
+
+
+---
+
+
+
+
+Here is a revised code snippet showing how the new `ex_cloudflare_agent` module will relate to the other libs:
+
+**`lib/ex_cloudflare_agent.ex` (Top-level module):**
+
+```elixir
+defmodule ExCloudflareAgent do
+  @moduledoc """
+  Provides an abstraction for integrating with agents in a Cloudflare Calls context.
+  """
+    defmodule Implementations.OpenAIAgent do
+    @moduledoc """
+    A concrete implementation for an AI agent using OpenAI
+    """
+    alias ExCloudflareCalls
+      alias ExCloudflareService.OpenAI
+
+      @spec new_agent(String.t(), String.t(), String.t(), keyword) :: {:ok, map} | {:error, String.t()}
+    def new_agent(app_id, app_token, open_ai_model_endpoint, opts \\ []) do
+        with {:ok, session} <- ExCloudflareCalls.Session.new_session(app_id, app_token, thirdparty: true),
+              {:ok, offer} <- ExCloudflareCalls.Session.new_tracks(session.session_id, app_id,  
+                                                      [tracks: [%{
+                                                        location: "local",
+                                                        trackName: "ai-generated-voice",
+                                                        bidirectionalMediaStream: true,
+                                                        kind: "audio"
+                                                        }
+                                                        ]], opts),
+         {:ok, openai_answer} <- OpenAI.request_openai_service(offer.sessionDescription.sdp,
+                Keyword.fetch!(opts, :open_ai_token),
+                open_ai_model_endpoint,
+                opts
+                ) ,
+          {:ok, _renegotiated} <- ExCloudflareCalls.Session.renegotiate(session.session_id, app_id,  openai_answer, "answer", opts) do
+                  {:ok, %{session_id: session.session_id, audio_track:  List.first(offer.tracks).trackName }}
+              else
+                  {:error, reason} ->
+                        {:error, "Failed to create new OpenAI agent: #{reason}"}
+                end
+     end
+
+    @spec manage_tracks(String.t(), String.t(), String.t(), String.t(), keyword) ::
+            {:ok, map()} | {:error, String.t()}
+    def manage_tracks(session_id, app_id, track_id, mid, opts \\ []) do
+            
+          ExCloudflareCalls.Session.new_tracks(session_id, app_id, 
+                  [tracks: [%{
+                      location: "remote",
+                      sessionId: session_id,
+                      trackName: track_id,
+                      mid: mid
+                  }]], opts
+            )
+    end
+   
+    
+  end
+
+end
+```
+
+**Key Changes:**
+
+*   **Agent Abstraction:**  `ex_cloudflare_agent` provides an interface for connecting a user, or "agent" into the Cloudflare calls framework
+ *   **OpenAI Specific Integration:** The Open AI integration is now in `ex_cloudflare_service`, providing an external service abstraction, without prescribing how that connection should work, or what data should be sent.
+*   **Flexibility:** This approach enables you to use any service with the `ex_cloudflare_agent` framework.

@@ -19,6 +19,24 @@ Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_do
 and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
 be found at <https://hexdocs.pm/ex_cloudflare_phoenix>.
 
+
+# Example Usage
+
+```elixir
+defmodule MyAppWeb.RoomLive do
+  use MyAppWeb, :live_view
+  import ExCloudflarePhoenix.Components
+   alias ExCloudflarePhoenix.Behaviours.Room
+   alias ExCloudflarePhoenix.Presence
+    
+  def mount(_params, session, socket) do
+      {:ok, assign(socket, :username, session["username"])}
+    end
+    
+  def handle_params(%{"roomName" => room_name}, _
+```
+
+
 # Difference from regular Phoenix app
 
 The key differences from a regular Phoenix app are:
