@@ -32,6 +32,47 @@ Would you like me to:
 2. Detail the component organization?
 3. Explain the behavior implementations?
 
+# Discussion of integration for libs
+
+```elixir
+# Common types and behaviors
+defmodule CloudflareInfra do
+  @type error_response :: %{
+    optional(:error_code) => String.t(),
+    optional(:error_description) => String.t()
+  }
+  
+  @callback handle_error(error_response()) :: {:error, term()}
+end
+
+# Example usage of both packages
+defmodule MyApp.Room do
+  alias ExDurableObjects.Room
+  alias ExCloudflareCalls.Session
+  
+  def create_room(room_id) do
+    with {:ok, room} <- Room.start_link(room_id),
+         {:ok, session} <- Session.new(config(:app_id), config(:secret)),
+         :ok <- Room.put(room, "session_id", session.id) do
+      {:ok, room}
+    end
+  end
+end
+
+# Start with the protocols
+defmodule ExCloudflareCalls.Protocol do
+  @callback new_session(map()) :: {:ok, map()} | {:error, term()}
+  @callback manage_tracks(map()) :: {:ok, map()} | {:error, term()}
+end
+
+defmodule ExDurableObjects.Protocol do
+  @callback storage_operation(atom(), term()) :: {:ok, term()} | {:error, term()}
+  @callback broadcast_message(term()) :: :ok | {:error, term()}
+end
+
+### We have made a first pass at the stubs, look in lib/ex_cloudflare_phoenix.ex
+```
+
 # Usage
 
 ## In your Phoenix LiveView
