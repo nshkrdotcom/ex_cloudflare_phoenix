@@ -8,12 +8,10 @@ defmodule ExCloudflarePhoenix.Application do
   @impl true
   def start(_type, _args) do
     children = [
-      # Starts a worker by calling: ExCloudflarePhoenix.Worker.start_link(arg)
-      # {ExCloudflarePhoenix.Worker, arg}
+      # Presence supervisor
+      ExCloudflarePhoenix.Presence
     ]
 
-    # See https://hexdocs.pm/elixir/Supervisor.html
-    # for other strategies and supported options
     opts = [strategy: :one_for_one, name: ExCloudflarePhoenix.Supervisor]
     Supervisor.start_link(children, opts)
   end
