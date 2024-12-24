@@ -5,13 +5,13 @@ defmodule ExCloudflarePhoenix.Media do
   alias ExCloudflarePhoenix.Presence
   alias ExCloudflarePhoenix.Media
   alias ExCloudflarePhoenix.Behaviours.Room
-  alias ExCloudflareCalls
+  alias CfCalls
           @spec handle_tracks(Phoenix.Socket.t(), list(map())) ::
   @spec handle_tracks(Phoenix.Socket.t(), list(map())) ::
     :ok | {:error, String.t()}
   def handle_tracks(socket, tracks) do
-      with {:ok, session} <- ExCloudflareCalls.Session.get_session(socket.assigns.room.calls_session.session_id),
-    {:ok, _} <- ExCloudflareCalls.Session.new_tracks(session.session_id,  config(:app_id), tracks, app_token: config(:secret) )  do
+      with {:ok, session} <- CfCalls.Session.get_session(socket.assigns.room.calls_session.session_id),
+    {:ok, _} <- CfCalls.Session.new_tracks(session.session_id,  config(:app_id), tracks, app_token: config(:secret) )  do
       broadcast_track_update(socket, tracks)
     else
       {:error, reason} ->
