@@ -27,8 +27,8 @@ defmodule ExCloudflarePhoenix.MixProject do
       {:phoenix_live_view, "~> 0.20"},
 
       # Our Cloudflare modules
-      {:ex_cloudflare_calls, path: "../ex_cloudflare_calls"},
-      {:ex_cloudflare_durable, path: "../ex_cloudflare_durable"},
+      {:cf_calls, path: "../cf_ex/apps/cf_calls"},
+      {:cf_durable, path: "../cf_ex/apps/cf_durable"},
 
       # JSON handling
       {:jason, "~> 1.4"},

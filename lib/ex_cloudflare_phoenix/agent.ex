@@ -15,8 +15,8 @@ defmodule Agent do
     @spec new_agent(String.t(), String.t(), String.t(), keyword) ::
       {:ok, map()} | {:error, String.t()}
     def new_agent(app_id, app_token, open_ai_model_endpoint, opts \\ []) do
-      with  {:ok, session} <- ExCloudflareCalls.Session.new_session(app_id, app_token, thirdparty: true, opts),
-        {:ok, offer} <- ExCloudflareCalls.Session.new_tracks(session.session_id, app_id,
+      with  {:ok, session} <- CfCalls.Session.new_session(app_id, app_token, thirdparty: true, opts),
+        {:ok, offer} <- CfCalls.Session.new_tracks(session.session_id, app_id,
         [%{
           location: "local",
           trackName: "ai-generated-voice",
@@ -31,7 +31,7 @@ defmodule Agent do
           true -> {:ok, SDP.generate_sdp(openai_answer.body)}
           _ -> {:error, "Invalid response from Open AI"}
       end,
-      {:ok, _renegotiated} <- ExCloudflareCalls.Session.renegotiate(session.session_id, app_id,  openai_sdp, "answer", app_token: app_token, base_url: Keyword.get(opts, :base_url, "https://rtc.live.cloudflare.com")) do
+      {:ok, _renegotiated} <- CfCalls.Session.renegotiate(session.session_id, app_id,  openai_sdp, "answer", app_token: app_token, base_url: Keyword.get(opts, :base_url, "https://rtc.live.cloudflare.com")) do
         {:ok, %{session_id: session.session_id, audio_track:  List.first(offer.tracks).trackName }}
       else
         {:error, reason} ->
@@ -42,7 +42,7 @@ defmodule Agent do
     @spec manage_tracks(String.t(), String.t(), String.t(), String.t(), keyword) ::
       {:ok, map()} | {:error, String.t()}
     def manage_tracks(session_id, app_id, track_id, mid, opts \\ []) do
-      ExCloudflareCalls.Session.new_tracks(session_id, app_id,
+      CfCalls.Session.new_tracks(session_id, app_id,
         [tracks: [%{
           location: "remote",
           sessionId: session_id,

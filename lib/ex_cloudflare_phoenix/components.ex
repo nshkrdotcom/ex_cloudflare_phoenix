@@ -10,9 +10,9 @@ defmodule ExCloudflarePhoenix.Components do
   alias ExCloudflarePhoenix.Components
   alias ExCloudflarePhoenix.Presence
   alias ExCloudflarePhoenix.Media
-  alias ExCloudflareCore.SDP
-  alias ExCloudflareCalls
-  alias ExCloudflareCore
+  alias CfCore.SDP
+  alias CfCalls
+  alias CfCore
 
   @doc """
     Provides a composable UI component for building a room layout.
